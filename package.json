@@ -1,0 +1,36 @@
+{
+  "name": "who-is-wodi",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "dev:server": "cd server && node index.js",
+    "build": "tsc && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@ant-design/icons": "^6.0.0",
+    "@zero-library/common": "3.0.5",
+    "@zero-library/theme": "3.0.5",
+    "antd": "^6.0.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.26.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.0",
+    "@types/react": "^18.3.11",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.3.2",
+    "less": "^4.2.0",
+    "typescript": "^5.6.2",
+    "vite": "^5.4.8"
+  },
+  "fde": {
+    "appKey": "who-is-wodi",
+    "appName": "谁是卧底AI对战",
+    "appDescription": "6个AI虚拟人物围坐圆桌玩谁是卧底游戏，大模型驱动描述与投票",
+    "iconUrl": ""
+  }
+}

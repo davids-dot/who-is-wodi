@@ -1,0 +1,107 @@
+.seat {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  margin-top: -50px;
+  margin-left: -50px;
+  width: 100px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  transition: all 0.3s ease;
+}
+
+.avatarWrap {
+  position: relative;
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #fff;
+  border: 3px solid #d9d9d9;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.avatar {
+  font-size: 36px;
+  line-height: 1;
+}
+
+.name {
+  margin-top: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #333;
+}
+
+.typingDot {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #52c41a;
+  border: 2px solid #fff;
+  animation: pulse 1s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+/* 卧底标签（旁观者可见） */
+.undercoverTag {
+  margin-top: 2px;
+  font-size: 11px;
+  padding: 1px 8px;
+  border-radius: 10px;
+  background: #ff4d4f;
+  color: #fff;
+  font-weight: 600;
+  box-shadow: 0 1px 4px rgba(255, 77, 79, 0.4);
+}
+
+/* 淘汰后身份标签 */
+.identityTag {
+  margin-top: 2px;
+  font-size: 12px;
+  padding: 1px 8px;
+  border-radius: 10px;
+  color: #fff;
+}
+
+.undercover {
+  background: #ff4d4f;
+}
+
+.civilian {
+  background: #52c41a;
+}
+
+.active {
+  .avatarWrap {
+    border-color: #1890ff;
+  }
+}
+
+.speaking {
+  .avatarWrap {
+    border-color: #52c41a;
+    box-shadow: 0 0 16px rgba(82, 196, 26, 0.4);
+    transform: scale(1.1);
+  }
+}
+
+.eliminated {
+  opacity: 0.5;
+  filter: grayscale(0.8);
+
+  .avatarWrap {
+    border-color: #d9d9d9;
+    background: #f5f5f5;
+  }
+}

@@ -1,0 +1,55 @@
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        # 盒子模式前端构建参数
+        - VITE_BASE_PATH=/${PROJECT_NAME:-who-is-wodi}/
+        - VITE_APP_KEY=${PROJECT_NAME:-who-is-wodi}
+    container_name: ${PROJECT_NAME:-fde-web}
+    ports:
+      - "${HOST_PORT:-5201}:5201"
+    environment:
+      - APP_KEY=${APP_KEY:-${PROJECT_NAME}}
+      - BASE_PATH=/${APP_KEY:-${PROJECT_NAME}}
+      - LLM_PROVIDER=vllm
+      # 数据库连接配置（容器内使用服务名访问）
+      - MYSQL_HOST=${MYSQL_HOST:-mysql}
+      - MYSQL_PORT=${MYSQL_PORT:-3306}
+      - MYSQL_USER=${MYSQL_USER:-root}
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD:-cube123456}
+      - MYSQL_DATABASE=${MYSQL_DATABASE:-}
+      # Nacos 服务注册配置
+      - NACOS_SERVER=${NACOS_SERVER:-nacos:8848}
+      - NACOS_NAMESPACE=${NACOS_NAMESPACE:-}
+      - NACOS_GROUP=${NACOS_GROUP:-DEFAULT_GROUP}
+      - NACOS_SERVICE_NAME=${NACOS_SERVICE_NAME:-${PROJECT_NAME}}
+      - NACOS_ENABLED=${NACOS_ENABLED:-true}
+      # 容器 IP（用于 Nacos 注册）
+      - POD_IP=${POD_IP:-}
+    volumes:
+      # 开发环境使用配置文件，生产环境使用环境变量
+      - ./server/db.config.json:/app/server/db.config.json:ro
+      # 日志持久化到宿主机（跨容器重建保留）
+      - ./logs:/app/logs
+    networks:
+      - cube-network
+    restart: unless-stopped
+    labels:
+      autoheal: "true"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:5201/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  cube-network:
+    external: true

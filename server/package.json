@@ -1,0 +1,19 @@
+{
+  "name": "who-is-wodi-server",
+  "version": "1.0.0",
+  "private": true,
+  "type": "commonjs",
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^17.4.2",
+    "express": "^4.21.0",
+    "nacos-naming": "file:vendor/nacos-naming",
+    "openai": "^5.15.0",
+    "pino": "^9.0.0",
+    "pino-http": "^10.0.0",
+    "pino-roll": "^3.0.0"
+  },
+  "scripts": {
+    "start": "node index.js"
+  }
+}
