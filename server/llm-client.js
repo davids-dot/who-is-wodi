@@ -140,11 +140,14 @@ async function chat(params) {
     stream,
   };
 
-  // vLLM 扩展参数：chat_template_kwargs 控制思考模式
-  // OpenAI SDK v5 Node.js 不支持 extra_body（Python SDK 概念），直接作为顶层参数传递
-  // 仅在 LLM_PROVIDER=vllm 时传递（云端 API 如 DeepSeek/DashScope 不识别此参数）
+  // 思考模式控制（不同 provider 参数格式不同）
+  // - vLLM: 通过 chat_template_kwargs 传递（盒子本地模型）
+  // - DashScope: 通过顶层 enable_thinking 参数传递（qwen3 系列默认开启思考，需显式关闭）
+  // - DeepSeek: 不支持思考模式参数，不传
   if (process.env.LLM_PROVIDER === 'vllm') {
     requestOptions.chat_template_kwargs = { enable_thinking: enableThinking };
+  } else if (process.env.LLM_PROVIDER === 'dashscope') {
+    requestOptions.enable_thinking = enableThinking;
   }
 
   if (temperature !== undefined) requestOptions.temperature = temperature;
@@ -297,9 +300,11 @@ async function vision(params) {
     stream: false,
   };
 
-  // 仅在 LLM_PROVIDER=vllm 时传递 chat_template_kwargs（云端 API 不识别此参数）
+  // 思考模式控制（与 chat() 一致）
   if (process.env.LLM_PROVIDER === 'vllm') {
     requestOptions.chat_template_kwargs = { enable_thinking: enableThinking };
+  } else if (process.env.LLM_PROVIDER === 'dashscope') {
+    requestOptions.enable_thinking = enableThinking;
   }
 
   // 可选参数透传（与 chat() 一致，仅在值不为 undefined 时设置）

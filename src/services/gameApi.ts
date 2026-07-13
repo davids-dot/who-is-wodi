@@ -1,9 +1,11 @@
 /**
- * 游戏 API 封装
+ * 游戏 API 封装（多实例版）
  *
- * 盒子模式：所有请求通过 /api/<appKey>/game/... 前缀访问后端（网关去掉 /api）
- * 公网模式：直接请求 /game/... （同源，无网关）
+ * 盒子模式：所有请求通过 /api/<appKey>/game/<gameId>/<action> 前缀访问后端（网关去掉 /api）
+ * 公网模式：直接请求 /game/<gameId>/<action> （同源，无网关）
  * SSE 流式请求使用原生 fetch + ReadableStream
+ *
+ * gameId 通过 crypto.randomUUID() 生成，存储在 sessionStorage（每 tab 独立）
  */
 
 import type { GamePublicState, VoteResult, RoundHistory, SSEEvent } from '../types/game'
@@ -12,11 +14,35 @@ import type { GamePublicState, VoteResult, RoundHistory, SSEEvent } from '../typ
 // 公网模式 __APP_KEY__ 为空：API_BASE = ''（直接请求 /game/...）
 const API_BASE = __APP_KEY__ ? `/api/${__APP_KEY__}` : ''
 
+const GAME_ID_KEY = 'wodi-game-id'
+
+/**
+ * 获取当前 tab 的 gameId（sessionStorage 隔离，每 tab 独立）
+ * 不存在时自动生成并存储
+ */
+export function getGameId(): string {
+  let gameId = sessionStorage.getItem(GAME_ID_KEY)
+  if (!gameId) {
+    gameId = crypto.randomUUID()
+    sessionStorage.setItem(GAME_ID_KEY, gameId)
+  }
+  return gameId
+}
+
+/**
+ * 重新生成 gameId（用于重置游戏时创建新实例）
+ */
+function regenerateGameId(): string {
+  const gameId = crypto.randomUUID()
+  sessionStorage.setItem(GAME_ID_KEY, gameId)
+  return gameId
+}
+
 /**
  * 开始新游戏
  */
 export async function startGame(): Promise<GamePublicState> {
-  const res = await fetch(`${API_BASE}/game/start`, {
+  const res = await fetch(`${API_BASE}/game/${getGameId()}/start`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
   })
@@ -39,7 +65,7 @@ export async function nextRound(
     onError?: (message: string) => void
   }
 ): Promise<void> {
-  const response = await fetch(`${API_BASE}/game/next-round`, {
+  const response = await fetch(`${API_BASE}/game/${getGameId()}/next-round`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -120,7 +146,7 @@ function handleSSEEvent(
  * 触发投票
  */
 export async function vote(): Promise<VoteResult> {
-  const res = await fetch(`${API_BASE}/game/vote`, {
+  const res = await fetch(`${API_BASE}/game/${getGameId()}/vote`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
   })
@@ -132,7 +158,7 @@ export async function vote(): Promise<VoteResult> {
  * 获取游戏状态
  */
 export async function getGameState(): Promise<GamePublicState> {
-  const res = await fetch(`${API_BASE}/game/state`)
+  const res = await fetch(`${API_BASE}/game/${getGameId()}/state`)
   const json = await res.json()
   return json.data
 }
@@ -141,16 +167,17 @@ export async function getGameState(): Promise<GamePublicState> {
  * 获取历史记录
  */
 export async function getHistory(): Promise<RoundHistory[]> {
-  const res = await fetch(`${API_BASE}/game/history`)
+  const res = await fetch(`${API_BASE}/game/${getGameId()}/history`)
   const json = await res.json()
   return json.data
 }
 
 /**
- * 重置游戏
+ * 重置游戏（重新生成 gameId，新游戏新实例）
  */
 export async function resetGame(): Promise<GamePublicState> {
-  const res = await fetch(`${API_BASE}/game/reset`, {
+  const newGameId = regenerateGameId()
+  const res = await fetch(`${API_BASE}/game/${newGameId}/reset`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
   })

@@ -1,12 +1,17 @@
 /**
- * 谁是卧底 — 游戏引擎
+ * 谁是卧底 — 游戏引擎（多实例版）
  *
  * 状态机: IDLE → DEALING → DESCRIBING → VOTING → RESULT → (GAME_OVER | DESCRIBING)
  *
  * 核心机制：
  *   - 卧底和平民的 prompt 结构完全相同，仅词语不同
  *   - 禁字规则作为"软规则"告知模型，不做硬性过滤
- *   - 描述依次进行（后者能看到前者），投票并行执行
+ *   - 描述依次进行（后者能看到前者），投票分批并行执行（concurrency=2）
+ *
+ * 多实例支持：
+ *   - games = Map<gameId, gameInstance>
+ *   - getGame(gameId) 延迟创建
+ *   - 游戏结束后 5min 自动删除，30min 无活动自动清理
  */
 
 const llm = require('../llm-client');
@@ -24,8 +29,19 @@ const GameState = {
   GAME_OVER: 'GAME_OVER',
 };
 
-// 单例游戏状态（内存存储）
-let game = createInitialGame();
+// 多实例游戏存储
+const games = new Map();
+
+// LLM 并发控制（DashScope 免费档约 2 并发，避免 429）
+const LLM_CONCURRENCY = parseInt(process.env.LLM_CONCURRENCY || '2', 10);
+
+// 清理配置
+const STALE_THRESHOLD = 30 * 60 * 1000;  // 30 分钟无活动
+const CLEANUP_INTERVAL = 10 * 60 * 1000;  // 每 10 分钟扫描一次
+const GAME_OVER_CLEANUP_DELAY = 5 * 60 * 1000;  // 游戏结束后 5 分钟清理
+
+// 清理定时器引用
+const cleanupTimers = new Map();
 
 function createInitialGame() {
   return {
@@ -39,23 +55,77 @@ function createInitialGame() {
       isAlive: true,
       isUndercover: false,
     })),
-    history: [],     // [{ round, descriptions: [...], votes: [...], eliminatedId }]
-    currentDescriptions: [], // 当前轮次的描述
+    history: [],
+    currentDescriptions: [],
     currentVotes: [],
     winner: null,
+    lastActivity: Date.now(),
   };
 }
 
 /**
- * 获取词语的组成字（用于禁字规则提示）
+ * 获取游戏实例（延迟创建：不存在时自动创建）
  */
+function getGame(gameId) {
+  if (!games.has(gameId)) {
+    games.set(gameId, createInitialGame());
+    logger.info({ gameId }, '[Engine] 创建新游戏实例');
+  }
+  const game = games.get(gameId);
+  game.lastActivity = Date.now();
+  return game;
+}
+
+/**
+ * 删除游戏实例
+ */
+function deleteGame(gameId) {
+  games.delete(gameId);
+  if (cleanupTimers.has(gameId)) {
+    clearTimeout(cleanupTimers.get(gameId));
+    cleanupTimers.delete(gameId);
+  }
+  logger.info({ gameId }, '[Engine] 游戏实例已删除');
+}
+
+/**
+ * 定时清理无活动游戏
+ */
+function cleanupStaleGames() {
+  const now = Date.now();
+  for (const [gameId, game] of games) {
+    if (now - game.lastActivity > STALE_THRESHOLD) {
+      logger.info({ gameId, lastActivity: game.lastActivity }, '[Engine] 清理过期游戏');
+      deleteGame(gameId);
+    }
+  }
+}
+
+// 启动定时清理（不阻止进程退出）
+const cleanupTimer = setInterval(cleanupStaleGames, CLEANUP_INTERVAL);
+if (cleanupTimer.unref) cleanupTimer.unref();
+
+/**
+ * 游戏结束后定时清理
+ */
+function scheduleCleanup(gameId) {
+  if (cleanupTimers.has(gameId)) {
+    clearTimeout(cleanupTimers.get(gameId));
+  }
+  const timer = setTimeout(() => {
+    deleteGame(gameId);
+  }, GAME_OVER_CLEANUP_DELAY);
+  if (timer.unref) timer.unref();
+  cleanupTimers.set(gameId, timer);
+  logger.info({ gameId }, `[Engine] 游戏结束，${GAME_OVER_CLEANUP_DELAY / 60000}分钟后自动清理`);
+}
+
+// ========== 纯函数（不依赖 game 实例，参数传入） ==========
+
 function getWordChars(word) {
   return word.split('');
 }
 
-/**
- * 构建描述历史文本（所有轮次）
- */
 function buildHistoryText(history) {
   if (!history || history.length === 0) return '';
   let text = '';
@@ -68,9 +138,6 @@ function buildHistoryText(history) {
   return text;
 }
 
-/**
- * 构建当前轮次已完成的描述文本
- */
 function buildCurrentRoundText(descriptions) {
   if (!descriptions || descriptions.length === 0) return '';
   let text = '';
@@ -80,10 +147,6 @@ function buildCurrentRoundText(descriptions) {
   return text;
 }
 
-/**
- * 构建描述阶段的 systemPrompt
- * 卧底和平民使用完全相同的结构，仅 word 不同
- */
 function buildDescriptionSystemPrompt(player) {
   const wordChars = getWordChars(player.word);
 
@@ -101,9 +164,6 @@ function buildDescriptionSystemPrompt(player) {
 你的名字：${player.name}`;
 }
 
-/**
- * 构建描述阶段的 user message
- */
 function buildDescriptionUserMessage(player, round, history, currentDescriptions) {
   const historyText = buildHistoryText(history);
   const currentText = buildCurrentRoundText(currentDescriptions);
@@ -131,9 +191,6 @@ function buildDescriptionUserMessage(player, round, history, currentDescriptions
   return msg;
 }
 
-/**
- * 构建投票阶段的 systemPrompt
- */
 function buildVoteSystemPrompt(player) {
   const wordChars = getWordChars(player.word);
 
@@ -151,9 +208,6 @@ function buildVoteSystemPrompt(player) {
 请根据所有人的描述，分析谁是卧底。`;
 }
 
-/**
- * 构建投票阶段的 user message
- */
 function buildVoteUserMessage(player, history, alivePlayers) {
   const historyText = buildHistoryText(history);
   const aliveNames = alivePlayers
@@ -173,23 +227,47 @@ ${historyText}
 {"voteFor": "玩家名", "reason": "30字以内说明理由"}`;
 }
 
+// ========== 并发控制工具函数 ==========
+
 /**
- * Task 2.4: 开始游戏 — 随机选词、分配身份
+ * 分批并行执行，每批 concurrency 个
+ * @param {Array} items - 待执行项数组
+ * @param {number} concurrency - 每批并发数
+ * @param {Function} fn - 处理函数，接收单个 item，返回 Promise
+ * @returns {Promise<Array>} 所有结果（保持原顺序）
  */
-function startGame() {
-  game = createInitialGame();
-  game.state = GameState.DEALING;
+async function runWithConcurrency(items, concurrency, fn) {
+  const results = [];
+  for (let i = 0; i < items.length; i += concurrency) {
+    const batch = items.slice(i, i + concurrency);
+    const batchResults = await Promise.all(batch.map(fn));
+    results.push(...batchResults);
+  }
+  return results;
+}
+
+// ========== 游戏逻辑（带 gameId 参数） ==========
+
+/**
+ * 开始游戏 — 随机选词、分配身份
+ */
+function startGame(gameId) {
+  const game = getGame(gameId);
+  // 重置为初始状态再开始
+  const fresh = createInitialGame();
+  games.set(gameId, fresh);
+
+  const g = games.get(gameId);
+  g.state = GameState.DEALING;
 
   const pair = getRandomWordPair();
-  game.wordPair = pair;
+  g.wordPair = pair;
 
-  // 随机选一个玩家做卧底
-  const undercoverIdx = Math.floor(Math.random() * game.players.length);
-  game.undercoverId = game.players[undercoverIdx].id;
+  const undercoverIdx = Math.floor(Math.random() * g.players.length);
+  g.undercoverId = g.players[undercoverIdx].id;
 
-  // 分配词语
-  for (const p of game.players) {
-    if (p.id === game.undercoverId) {
+  for (const p of g.players) {
+    if (p.id === g.undercoverId) {
       p.word = pair.undercover;
       p.isUndercover = true;
     } else {
@@ -198,37 +276,38 @@ function startGame() {
     }
   }
 
-  game.state = GameState.DESCRIBING;
-  game.round = 1;
-  game.currentDescriptions = [];
+  g.state = GameState.DESCRIBING;
+  g.round = 1;
+  g.currentDescriptions = [];
 
   logger.info({
+    gameId,
     wordPair: pair,
-    undercover: game.players[undercoverIdx].name,
-    round: game.round,
+    undercover: g.players[undercoverIdx].name,
+    round: g.round,
   }, '[Engine] 游戏开始');
 
-  return getPublicState();
+  return getPublicState(gameId);
 }
 
 /**
- * Task 2.5: 下一轮 — 轮次递增，保持同一词对和卧底
+ * 下一轮 — 轮次递增，保持同一词对和卧底
  */
-function nextRound() {
+function nextRound(gameId) {
+  const game = getGame(gameId);
   game.round += 1;
   game.currentDescriptions = [];
   game.currentVotes = [];
   game.state = GameState.DESCRIBING;
-  logger.info({ round: game.round }, '[Engine] 进入新一轮');
-  return getPublicState();
+  logger.info({ gameId, round: game.round }, '[Engine] 进入新一轮');
+  return getPublicState(gameId);
 }
 
 /**
- * Task 3.1-3.3: 生成单个玩家的描述（流式）
- * @param {object} player - 玩家对象
- * @returns {AsyncGenerator} LLM 流式响应
+ * 生成单个玩家的描述（流式）
  */
-async function* generateDescription(player) {
+async function* generateDescription(gameId, player) {
+  const game = getGame(gameId);
   const systemPrompt = buildDescriptionSystemPrompt(player);
   const userMessage = buildDescriptionUserMessage(
     player,
@@ -238,6 +317,7 @@ async function* generateDescription(player) {
   );
 
   logger.info({
+    gameId,
     playerId: player.id,
     playerName: player.name,
     round: game.round,
@@ -260,7 +340,6 @@ async function* generateDescription(player) {
     }
   }
 
-  // 存储描述
   const desc = {
     playerId: player.id,
     playerName: player.name,
@@ -271,6 +350,7 @@ async function* generateDescription(player) {
   game.currentDescriptions.push(desc);
 
   logger.info({
+    gameId,
     playerId: player.id,
     playerName: player.name,
     text: fullText.trim(),
@@ -278,14 +358,16 @@ async function* generateDescription(player) {
 }
 
 /**
- * Task 3.4-3.5: 生成单个玩家的投票
+ * 生成单个玩家的投票
  */
-async function generateVote(player) {
+async function generateVote(gameId, player) {
+  const game = getGame(gameId);
   const alivePlayers = game.players.filter((p) => p.isAlive);
   const systemPrompt = buildVoteSystemPrompt(player);
   const userMessage = buildVoteUserMessage(player, game.history, alivePlayers);
 
   logger.info({
+    gameId,
     voterId: player.id,
     voterName: player.name,
   }, '[Engine] 开始生成投票');
@@ -302,6 +384,7 @@ async function generateVote(player) {
 
     const parsed = JSON.parse(result.content);
     logger.info({
+      gameId,
       voterName: player.name,
       voteFor: parsed.voteFor,
       reason: parsed.reason,
@@ -314,10 +397,10 @@ async function generateVote(player) {
       isFallback: false,
     };
   } catch (err) {
-    // Fallback: 随机投票
     const otherAlive = alivePlayers.filter((p) => p.id !== player.id);
     const randomTarget = otherAlive[Math.floor(Math.random() * otherAlive.length)];
     logger.warn({
+      gameId,
       voterName: player.name,
       err: err.message,
       fallbackTarget: randomTarget.name,
@@ -333,32 +416,41 @@ async function generateVote(player) {
 }
 
 /**
- * Task 3.6: 并行执行所有活跃玩家的投票
+ * 分批并行执行所有活跃玩家的投票（concurrency 控制）
  */
-async function executeVotes() {
+async function executeVotes(gameId) {
+  const game = getGame(gameId);
   game.state = GameState.VOTING;
   const alivePlayers = game.players.filter((p) => p.isAlive);
 
-  const votePromises = alivePlayers.map((p) => generateVote(p));
-  const votes = await Promise.all(votePromises);
+  logger.info({
+    gameId,
+    aliveCount: alivePlayers.length,
+    concurrency: LLM_CONCURRENCY,
+  }, '[Engine] 开始分批投票');
+
+  const votes = await runWithConcurrency(
+    alivePlayers,
+    LLM_CONCURRENCY,
+    (player) => generateVote(gameId, player)
+  );
 
   game.currentVotes = votes;
   return votes;
 }
 
 /**
- * Task 2.6: 淘汰得票最多者，平票无人淘汰
+ * 淘汰得票最多者，平票无人淘汰
  */
-function eliminatePlayer() {
-  // 统计票数
+function eliminatePlayer(gameId) {
+  const game = getGame(gameId);
   const voteCount = {};
-  logger.info({ votes: game.currentVotes }, '[Engine] 开始统计票数');
+  logger.info({ gameId, votes: game.currentVotes }, '[Engine] 开始统计票数');
 
   for (const vote of game.currentVotes) {
     voteCount[vote.voteFor] = (voteCount[vote.voteFor] || 0) + 1;
   }
 
-  // 找出最高票
   let maxVotes = 0;
   let eliminated = null;
   let isTie = false;
@@ -389,7 +481,6 @@ function eliminatePlayer() {
     }
   }
 
-  // 保存历史记录
   game.history.push({
     round: game.round,
     descriptions: [...game.currentDescriptions],
@@ -400,6 +491,7 @@ function eliminatePlayer() {
 
   game.state = GameState.RESULT;
   logger.info({
+    gameId,
     eliminated: eliminatedPlayer ? eliminatedPlayer.name : null,
     isTie,
     voteCount,
@@ -408,23 +500,24 @@ function eliminatePlayer() {
 }
 
 /**
- * Task 2.7: 检查游戏是否结束
+ * 检查游戏是否结束
  */
-function checkGameOver() {
+function checkGameOver(gameId) {
+  const game = getGame(gameId);
   const alivePlayers = game.players.filter((p) => p.isAlive);
   const undercover = game.players.find((p) => p.id === game.undercoverId);
 
-  // 卧底被淘汰
   if (undercover && !undercover.isAlive) {
     game.state = GameState.GAME_OVER;
     game.winner = 'civilian';
+    scheduleCleanup(gameId);
     return { gameOver: true, winner: 'civilian', undercover };
   }
 
-  // 仅剩2人且卧底存活
   if (alivePlayers.length <= 2 && undercover && undercover.isAlive) {
     game.state = GameState.GAME_OVER;
     game.winner = 'undercover';
+    scheduleCleanup(gameId);
     return { gameOver: true, winner: 'undercover', undercover };
   }
 
@@ -432,20 +525,19 @@ function checkGameOver() {
 }
 
 /**
- * Task 2.8: 重置游戏
+ * 重置游戏
  */
-function resetGame() {
-  game = createInitialGame();
-  logger.info('[Engine] 游戏已重置');
-  return getPublicState();
+function resetGame(gameId) {
+  games.set(gameId, createInitialGame());
+  logger.info({ gameId }, '[Engine] 游戏已重置');
+  return getPublicState(gameId);
 }
 
 /**
- * 获取当前游戏状态
- * 旁观者视角：始终暴露 isUndercover 和 wordPair（用户可见）
- * 注意：LLM 的 prompt 中不包含身份信息，仅词语不同实现隔离
+ * 获取当前游戏状态（旁观者视角）
  */
-function getPublicState() {
+function getPublicState(gameId) {
+  const game = getGame(gameId);
   return {
     state: game.state,
     round: game.round,
@@ -468,19 +560,24 @@ function getPublicState() {
 /**
  * 获取历史记录
  */
-function getHistory() {
+function getHistory(gameId) {
+  const game = getGame(gameId);
   return game.history;
 }
 
 /**
  * 获取活跃玩家列表
  */
-function getAlivePlayers() {
+function getAlivePlayers(gameId) {
+  const game = getGame(gameId);
   return game.players.filter((p) => p.isAlive);
 }
 
 module.exports = {
   GameState,
+  getGame,
+  deleteGame,
+  cleanupStaleGames,
   startGame,
   nextRound,
   generateDescription,
