@@ -4,7 +4,7 @@
 Dockerfile 中所有 FROM 指令 SHALL 使用 Docker Hub 公共镜像 `node:18-alpine`，不得引用私有镜像仓库地址。
 
 #### Scenario: 公网环境构建
-- **WHEN** 在 Koyeb 或任何公网环境执行 `docker build`
+- **WHEN** 在 Render 或任何公网环境执行 `docker build`
 - **THEN** 所有基础镜像可从 Docker Hub 直接拉取，构建成功
 
 #### Scenario: 盒子环境构建
@@ -87,9 +87,13 @@ LLM 客户端 SHALL 仅在 `LLM_PROVIDER=vllm` 时传递 `chat_template_kwargs` 
 - **WHEN** 使用公网配置的 docker-compose 启动容器
 - **THEN** 容器不连接 cube-network，不尝试注册 Nacos，通过 LLM_API_KEY 调用云端 API
 
-### Requirement: Koyeb 部署配置
-项目 SHALL 包含 `koyeb.yaml` 配置文件，指定构建上下文、Dockerfile 路径和端口暴露。
+### Requirement: Render 部署配置
+项目 SHALL 包含 `render.yaml` Blueprint 配置文件，指定 Docker 构建、端口暴露、健康检查和环境变量。
 
-#### Scenario: Koyeb 自动部署
-- **WHEN** Koyeb 平台读取 `koyeb.yaml` 并执行部署
-- **THEN** 成功构建 Docker 镜像，在端口 5201 启动服务，并通过 HTTP 健康检查验证服务可用性
+#### Scenario: Render Blueprint 自动部署
+- **WHEN** Render 平台读取 `render.yaml` 并执行部署
+- **THEN** 成功构建 Docker 镜像，在端口 5201 启动服务，并通过 `/health` 健康检查验证服务可用性
+
+#### Scenario: Render 环境变量 Secret 注入
+- **WHEN** `render.yaml` 中 `LLM_API_KEY` 设置为 `sync: false`
+- **THEN** 用户需在 Render 控制台手动填入 LLM_API_KEY，该值不会写入代码仓库

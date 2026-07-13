@@ -1,0 +1,32 @@
+# Render Blueprint 配置文件
+# 文档: https://render.com/docs/blueprint-spec
+#
+# 使用方式：
+#   1. 将代码推送到 GitHub
+#   2. 在 Render 控制台 → New → Blueprint，选择对应仓库
+#   3. Render 自动读取 render.yaml 并创建服务
+#   4. 在 Render 控制台的 Environment 中手动填入 LLM_API_KEY（sync: false 的变量不会写入仓库）
+#
+# 注意：Render Free 计划 15 分钟无访问会自动休眠，下次访问约 50 秒唤醒
+
+services:
+  - type: web
+    name: who-is-wodi
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: NACOS_ENABLED
+        value: "false"
+      - key: BASE_PATH
+        value: ""
+      - key: LLM_BASE_URL
+        value: "https://api.deepseek.com/v1"
+      - key: LLM_MODEL_CHAT
+        value: "deepseek-chat"
+      - key: LLM_PROVIDER
+        value: "deepseek"
+      - key: LLM_API_KEY
+        sync: false  # 在 Render 控制台手动填入，不写入仓库

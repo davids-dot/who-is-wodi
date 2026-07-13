@@ -41,16 +41,16 @@
 - [x] 6.1 创建 `.env.example` 文件，包含所有公网部署所需环境变量及注释说明
 - [x] 6.2 变量列表：`LLM_BASE_URL`、`LLM_API_KEY`、`LLM_MODEL_CHAT`、`LLM_PROVIDER`、`NACOS_ENABLED`、`BASE_PATH`、`VITE_BASE_PATH`、`VITE_APP_KEY`
 
-## 7. Koyeb 部署配置
+## 7. Render 部署配置
 
-- [x] 7.1 创建 `koyeb.yaml` 配置文件，指定 Docker 构建路径、端口 5201、健康检查路径 `/health`
-- [x] 7.2 在 `koyeb.yaml` 中配置环境变量（从 Koyeb 控制台 Secret 注入 `LLM_API_KEY`）
+- [x] 7.1 创建 `render.yaml` Blueprint 配置文件，指定 Docker 构建、端口 5201、健康检查路径 `/health`
+- [x] 7.2 在 `render.yaml` 中配置环境变量（`LLM_API_KEY` 设为 `sync: false`，在 Render 控制台手动填入）
 
 ## 8. 构建验证
 
 - [x] 8.1 本地 Docker 构建验证（跳过，用户要求不在本地构建）
-- [x] 8.2 容器启动验证（跳过，将在 Koyeb 部署时验证）
-- [x] 8.3 健康检查验证（跳过，将在 Koyeb 部署时验证）
+- [x] 8.2 容器启动验证（跳过，将在 Render 部署时验证）
+- [x] 8.3 健康检查验证（跳过，将在 Render 部署时验证）
 - [x] 8.4 前端页面加载验证（已通过 `npm run build` 验证公网模式构建成功，资源路径为 `/`）
 - [x] 8.5 游戏 API 验证（跳过，将在 Koyeb 部署时验证）
 
