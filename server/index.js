@@ -40,10 +40,10 @@ app.get('/health', (req, res) => {
   });
 });
 
-// 允许跨域 iframe 嵌入（解决 COEP/CORP 拦截问题）
+// 允许跨域 iframe 嵌入（itco 平台要求 COEP=require-corp，子 iframe 也必须设置）
 app.use((req, res, next) => {
   res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
-  res.setHeader('Cross-Origin-Embedder-Policy', 'unsafe-none');
+  res.setHeader('Cross-Origin-Embedder-Policy', 'require-corp');
   next();
 });
 
