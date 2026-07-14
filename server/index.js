@@ -40,6 +40,13 @@ app.get('/health', (req, res) => {
   });
 });
 
+// 允许跨域 iframe 嵌入（解决 COEP/CORP 拦截问题）
+app.use((req, res, next) => {
+  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+  res.setHeader('Cross-Origin-Embedder-Policy', 'unsafe-none');
+  next();
+});
+
 const baseRouter = express.Router();
 
 // 全局上下文中间件
