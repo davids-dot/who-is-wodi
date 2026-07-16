@@ -28,6 +28,13 @@
 
 const OpenAI = require('openai');
 
+// ========== 超时配置 ==========
+
+// 总超时：从调用开始到整个流结束的最大时间（默认 30s）
+const LLM_TIMEOUT_MS = parseInt(process.env.LLM_TIMEOUT_MS || '30000', 10);
+// 空闲超时：两个 chunk 之间的最大间隔时间（默认 15s）
+const LLM_IDLE_TIMEOUT_MS = parseInt(process.env.LLM_IDLE_TIMEOUT_MS || '15000', 10);
+
 // ========== 客户端初始化 ==========
 
 const baseURL = process.env.LLM_BASE_URL || 'cube-llm:11435/v1';
@@ -177,44 +184,95 @@ async function chat(params) {
   requestOptions.tool_choice = toolChoice;
 
   if (stream) {
-    // 流式模式：返回 async generator
+    // 流式模式：返回 async generator（带超时保护）
     return (async function* () {
-      const streamResponse = await client.chat.completions.create(requestOptions);
+      // AbortController 用于超时后中断底层 HTTP 连接
+      const controller = new AbortController();
+      const { signal } = controller;
+
+      // 双层超时计时器
+      let totalTimer = null;
+      let idleTimer = null;
+      let aborted = false;
+
+      function clearTimeouts() {
+        if (totalTimer) { clearTimeout(totalTimer); totalTimer = null; }
+        if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; }
+      }
+
+      function abortWithTimeout() {
+        if (aborted) return;
+        aborted = true;
+        clearTimeouts();
+        controller.abort();
+      }
+
+      // 总超时：从调用开始计时
+      totalTimer = setTimeout(abortWithTimeout, LLM_TIMEOUT_MS);
+      // 空闲超时：初始启动，每收到一个 chunk 重置
+      idleTimer = setTimeout(abortWithTimeout, LLM_IDLE_TIMEOUT_MS);
+
+      // 将 signal 传入 SDK，超时后可中断底层 fetch
+      requestOptions.signal = signal;
+
       // 流式 tool_calls 累积器：按 index 分组，首 chunk 记录 id/type/name，后续追加 arguments
       const toolCallAccumulator = {};
       let lastFinishReason = null;
 
-      for await (const chunk of streamResponse) {
-        const choice = chunk.choices?.[0];
-        const delta = choice?.delta;
+      try {
+        const streamResponse = await client.chat.completions.create(requestOptions);
 
-        if (delta?.content) {
-          yield { content: delta.content };
-        }
-        if (delta?.reasoning_content) {
-          yield { thinking: delta.reasoning_content };
-        }
+        for await (const chunk of streamResponse) {
+          // 收到 chunk，重置空闲超时
+          if (idleTimer) clearTimeout(idleTimer);
+          idleTimer = setTimeout(abortWithTimeout, LLM_IDLE_TIMEOUT_MS);
 
-        // 累积流式 tool_calls
-        if (delta?.tool_calls) {
-          for (const tc of delta.tool_calls) {
-            const idx = tc.index ?? 0;
-            if (!toolCallAccumulator[idx]) {
-              toolCallAccumulator[idx] = {
-                id: tc.id || '',
-                type: tc.type || 'function',
-                function: { name: '', arguments: '' },
-              };
+          const choice = chunk.choices?.[0];
+          const delta = choice?.delta;
+
+          if (delta?.content) {
+            yield { content: delta.content };
+          }
+          if (delta?.reasoning_content) {
+            yield { thinking: delta.reasoning_content };
+          }
+
+          // 累积流式 tool_calls
+          if (delta?.tool_calls) {
+            for (const tc of delta.tool_calls) {
+              const idx = tc.index ?? 0;
+              if (!toolCallAccumulator[idx]) {
+                toolCallAccumulator[idx] = {
+                  id: tc.id || '',
+                  type: tc.type || 'function',
+                  function: { name: '', arguments: '' },
+                };
+              }
+              if (tc.id) toolCallAccumulator[idx].id = tc.id;
+              if (tc.function?.name) toolCallAccumulator[idx].function.name += tc.function.name;
+              if (tc.function?.arguments) toolCallAccumulator[idx].function.arguments += tc.function.arguments;
             }
-            if (tc.id) toolCallAccumulator[idx].id = tc.id;
-            if (tc.function?.name) toolCallAccumulator[idx].function.name += tc.function.name;
-            if (tc.function?.arguments) toolCallAccumulator[idx].function.arguments += tc.function.arguments;
+          }
+
+          if (choice?.finish_reason) {
+            lastFinishReason = choice.finish_reason;
           }
         }
 
-        if (choice?.finish_reason) {
-          lastFinishReason = choice.finish_reason;
+        // 流正常结束，清除计时器
+        clearTimeouts();
+      } catch (err) {
+        clearTimeouts();
+
+        // AbortError → 转换为 LLM_TIMEOUT 错误
+        if (aborted || err.name === 'AbortError') {
+          const timeoutErr = new Error(
+            `LLM stream timeout (total=${LLM_TIMEOUT_MS}ms, idle=${LLM_IDLE_TIMEOUT_MS}ms)`
+          );
+          timeoutErr.code = 'LLM_TIMEOUT';
+          throw timeoutErr;
         }
+        throw err;
       }
 
       // 流结束后，如果有累积的 tool_calls，yield 完整结果
@@ -549,5 +607,10 @@ module.exports = {
     vision: MODEL_VISION,
     embedding: MODEL_EMBEDDING,
     reranker: MODEL_RERANKER,
+  },
+  // 导出超时常量，供外部读取
+  timeoutConfig: {
+    totalMs: LLM_TIMEOUT_MS,
+    idleMs: LLM_IDLE_TIMEOUT_MS,
   },
 };

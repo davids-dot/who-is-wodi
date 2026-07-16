@@ -1,8 +1,12 @@
+/** 游戏模式 */
+export type GameMode = 'ai' | 'participate'
+
 /** 游戏状态枚举 */
 export type GameStateType =
   | 'IDLE'
   | 'DEALING'
   | 'DESCRIBING'
+  | 'VOTING_PENDING'
   | 'VOTING'
   | 'RESULT'
   | 'GAME_OVER'
@@ -15,6 +19,9 @@ export interface Player {
   isAlive: boolean
   isUndercover?: boolean
   word?: string
+  isHuman?: boolean
+  personality?: string
+  style?: string
 }
 
 /** 描述记录 */
@@ -69,6 +76,10 @@ export interface GamePublicState {
   history: RoundHistory[]
   winner: string | null
   wordPair: WordPair | null
+  myWord?: string
+  myPlayerId?: number
+  isMyTurn?: boolean
+  mode?: GameMode
 }
 
 /** 投票结果 */
@@ -94,5 +105,6 @@ export interface SSEEvent {
     fullText?: string
     round?: number
     message?: string
+    isMyTurn?: boolean
   }
 }

@@ -63,6 +63,13 @@
   color: #fff;
   font-weight: 600;
   box-shadow: 0 1px 4px rgba(255, 77, 79, 0.4);
+  cursor: pointer;
+  transition: all 0.2s ease;
+
+  &:hover {
+    transform: scale(1.05);
+    box-shadow: 0 2px 8px rgba(255, 77, 79, 0.6);
+  }
 }
 
 /* 淘汰后身份标签 */
@@ -72,14 +79,67 @@
   padding: 1px 8px;
   border-radius: 10px;
   color: #fff;
+  cursor: pointer;
+  transition: all 0.2s ease;
+
+  &:hover {
+    transform: scale(1.05);
+  }
 }
 
 .undercover {
   background: #ff4d4f;
+
+  &:hover {
+    box-shadow: 0 2px 8px rgba(255, 77, 79, 0.6);
+  }
 }
 
 .civilian {
   background: #52c41a;
+
+  &:hover {
+    box-shadow: 0 2px 8px rgba(82, 196, 26, 0.6);
+  }
+}
+
+/* 特质提示框 */
+.personalityTooltip {
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  margin-bottom: 8px;
+  padding: 8px 12px;
+  background: rgba(0, 0, 0, 0.85);
+  color: #fff;
+  font-size: 12px;
+  border-radius: 8px;
+  white-space: nowrap;
+  z-index: 100;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  animation: fadeIn 0.2s ease;
+
+  &::after {
+    content: '';
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    border: 6px solid transparent;
+    border-top-color: rgba(0, 0, 0, 0.85);
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
 }
 
 .active {

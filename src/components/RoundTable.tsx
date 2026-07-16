@@ -8,6 +8,7 @@ interface RoundTableProps {
   players: Player[]
   speakingPlayerId: number | null
   typingPlayerId: number | null
+  thinkingPlayerId?: number | null
   votes: Vote[] | null
 }
 
@@ -18,7 +19,7 @@ const TABLE_CENTER = TABLE_SIZE / 2
 
 /** 根据座位索引计算在 SVG 坐标系中的位置 */
 function getSeatPos(index: number): { x: number; y: number } {
-  const angle = (index * 60 - 90) * (Math.PI / 180)
+  const angle = (index * (360 / 7) - 90) * (Math.PI / 180)
   return {
     x: TABLE_CENTER + Math.cos(angle) * SEAT_RADIUS,
     y: TABLE_CENTER + Math.sin(angle) * SEAT_RADIUS,
@@ -29,6 +30,7 @@ const RoundTable: React.FC<RoundTableProps> = ({
   players,
   speakingPlayerId,
   typingPlayerId,
+  thinkingPlayerId,
   votes,
 }) => {
   /** 根据 voteFor 名字查找玩家索引 */
@@ -107,6 +109,8 @@ const RoundTable: React.FC<RoundTableProps> = ({
             status = 'eliminated'
           } else if (speakingPlayerId === player.id) {
             status = 'speaking'
+          } else if (thinkingPlayerId === player.id) {
+            status = 'thinking'
           }
 
           return (

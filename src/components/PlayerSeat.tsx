@@ -1,8 +1,8 @@
-import React from 'react'
+import React, { useState } from 'react'
 import type { Player } from '../types/game'
 import styles from './PlayerSeat.module.less'
 
-export type PlayerStatus = 'active' | 'speaking' | 'eliminated'
+export type PlayerStatus = 'active' | 'speaking' | 'eliminated' | 'thinking'
 
 interface PlayerSeatProps {
   player: Player
@@ -13,7 +13,7 @@ interface PlayerSeatProps {
 
 /** 获取圆桌座位位置样式 */
 function getPositionStyle(position: number): React.CSSProperties {
-  const angle = (position * 60 - 90) * (Math.PI / 180)
+  const angle = (position * (360 / 7) - 90) * (Math.PI / 180)
   const radius = 200
   const x = Math.cos(angle) * radius
   const y = Math.sin(angle) * radius
@@ -29,11 +29,27 @@ const PlayerSeat: React.FC<PlayerSeatProps> = ({
   position,
 }) => {
   const posStyle = getPositionStyle(position)
+  const [showTooltip, setShowTooltip] = useState(false)
+
+  // 获取要显示的特质文本
+  const getTooltipText = () => {
+    if (player.isUndercover && status !== 'eliminated') {
+      return `卧底：${player.personality || '暂无特质'}`
+    }
+    if (status === 'eliminated') {
+      const identity = player.isUndercover ? '卧底' : '平民'
+      return `${identity}：${player.personality || '暂无特质'}`
+    }
+    return player.personality || '暂无特质'
+  }
 
   return (
     <div
       className={`${styles.seat} ${styles[status]}`}
       style={posStyle}
+      onMouseEnter={() => setShowTooltip(true)}
+      onMouseLeave={() => setShowTooltip(false)}
+      onClick={() => setShowTooltip(!showTooltip)}
     >
       <div className={styles.avatarWrap}>
         <span className={styles.avatar}>{player.avatar}</span>
@@ -49,6 +65,9 @@ const PlayerSeat: React.FC<PlayerSeatProps> = ({
         <div className={`${styles.identityTag} ${player.isUndercover ? styles.undercover : styles.civilian}`}>
           {player.isUndercover ? '卧底' : '平民'}
         </div>
+      )}
+      {showTooltip && (
+        <div className={styles.personalityTooltip}>{getTooltipText()}</div>
       )}
     </div>
   )

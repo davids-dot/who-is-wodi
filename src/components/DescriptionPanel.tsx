@@ -1,26 +1,32 @@
 import React, { useEffect, useRef } from 'react'
 import { Card, Empty, Tag } from 'antd'
-import type { Player, RoundHistory } from '../types/game'
+import type { Player, RoundHistory, Description } from '../types/game'
 import styles from './DescriptionPanel.module.less'
 
 interface DescriptionPanelProps {
   players: Player[]
   /** 当前轮次的流式描述: { playerId: text } */
   currentDescriptions: Record<number, string>
-  /** 正在打字的玩家 ID */
-  typingPlayerId: number | null
+  /** 后端存储的当前轮次完整描述列表（含人类描述） */
+  currentRoundDescriptions?: Description[]
+  /** 正在活动(说话/思考)的玩家 */
+  activePlayer?: { id: number; type: 'speaking' | 'thinking' } | null
   /** 历史轮次记录 */
   history: RoundHistory[]
   /** 当前轮次 */
   round: number
+  /** 被超时跳过的玩家: { playerId: message } */
+  skippedPlayers?: Record<number, string>
 }
 
 const DescriptionPanel: React.FC<DescriptionPanelProps> = ({
   players,
   currentDescriptions,
-  typingPlayerId,
+  currentRoundDescriptions = [],
+  activePlayer,
   history,
   round,
+  skippedPlayers,
 }) => {
   const listRef = useRef<HTMLDivElement>(null)
 
@@ -93,19 +99,54 @@ const DescriptionPanel: React.FC<DescriptionPanelProps> = ({
               })
             )}
 
-            {/* 当前轮次流式描述 */}
-            {Object.entries(currentDescriptions).map(([pid, text]) => {
+            {/* 当前轮次描述：只在有流式数据且历史未包含当前轮时显示 */}
+            {currentRoundDescriptions.length > 0 && round > history.length ? (
+              currentRoundDescriptions.map((desc) => {
+                const p = getPlayer(desc.playerId)
+                return renderDescriptionItem(
+                  desc.playerId,
+                  desc.playerName,
+                  p?.avatar || '👤',
+                  desc.text,
+                  p?.isUndercover || false,
+                  false,
+                  `cr-${desc.playerId}`
+                )
+              })
+            ) : (
+              // 流式描述：只在当前轮次不在历史中时显示
+              round > history.length && Object.entries(currentDescriptions).map(([pid, text]) => {
+                const playerId = Number(pid)
+                const p = getPlayer(playerId)
+                if (!p) return null
+                const isSkipped = skippedPlayers && skippedPlayers[playerId]
+                return renderDescriptionItem(
+                  playerId,
+                  p.name,
+                  p.avatar,
+                  isSkipped ? '⏱️ 超时未描述' : text,
+                  p.isUndercover || false,
+                  activePlayer?.id === playerId && activePlayer.type === 'speaking',
+                  `c-${playerId}`
+                )
+              })
+            )}
+
+            {/* 被跳过但未在 currentDescriptions 中的玩家 */}
+            {skippedPlayers && Object.entries(skippedPlayers).map(([pid, msg]) => {
               const playerId = Number(pid)
+              // 如果已经在 currentDescriptions 中显示则跳过
+              if (currentDescriptions[playerId] !== undefined) return null
               const p = getPlayer(playerId)
               if (!p) return null
               return renderDescriptionItem(
                 playerId,
                 p.name,
                 p.avatar,
-                text,
+                `⏱️ ${msg}`,
                 p.isUndercover || false,
-                typingPlayerId === playerId,
-                `c-${playerId}`
+                false,
+                `s-${playerId}`
               )
             })}
           </>
